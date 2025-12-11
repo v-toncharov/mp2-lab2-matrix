@@ -10,6 +10,9 @@ struct owned_mat final : mat<T, maj> {
     explicit owned_mat(size_t rows, size_t cols, bool zero_mem = true)
         : mat(nullptr, rows, cols) {
         size_t num_cells = checked_mul(rows, cols);
+        if (checked_mul(num_cells, sizeof(T)) > (SIZE_MAX/2)) {
+            throw std::runtime_error("matrix exceeds maximim size");
+        }
         mat::elems = new T[num_cells]; // NOLINT, we own this
         if (zero_mem) mat::zero_fill();
     }
@@ -26,7 +29,7 @@ struct owned_mat final : mat<T, maj> {
     owned_mat& operator =(mat const& o) {
         if (mat::elems == o.base_ptr()) return *this;
         if (mat::rows < o.n_rows() || mat::cols < o.n_cols()) {
-            this->~owned_mat();
+            fini();
             new(this) owned_mat(o.n_rows(), o.n_cols(), false);
         }
         mat::rows = o.n_rows();
@@ -47,13 +50,12 @@ struct owned_mat final : mat<T, maj> {
     owned_mat(owned_mat&& o) noexcept : mat(o.elems, o.rows, o.cols) { o.forget(); }
     owned_mat& operator =(owned_mat&& o) noexcept {
         if (this == &o) return *this;
-        this->~owned_mat();
+        fini();
         new(this) mat(o.elems, o.rows, o.cols);
         o.forget();
         return *this;
     }
-
-    ~owned_mat() { delete[] mat::elems; } // NOLINT gsl::owner
+    ~owned_mat() { fini(); }
     /// --- end resource management ---
 
     /// --- non-in-place arithmetic ---
@@ -72,6 +74,9 @@ struct owned_mat final : mat<T, maj> {
         return rslt;
     }
     /// --- end non-in-place arithmetic ---
+
+private:
+    void fini() { delete[] mat::elems; } // NOLINT gsl::owner
 };
 template<typename T> using owned_col_mat = owned_mat<T, mat_maj::col>;
 template<typename T> using owned_row_mat = owned_mat<T, mat_maj::row>;

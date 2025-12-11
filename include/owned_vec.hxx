@@ -1,4 +1,5 @@
 #pragma once
+#include "checked_arith.hxx"
 #include "vec.hxx"
 
 template<typename T>
@@ -10,7 +11,10 @@ public:
     /// --- resource management ---
     owned_vec() noexcept = default;
     explicit owned_vec(size_t len, bool zero_mem = true) : vec(nullptr, len) {
-        vec::_ptr = new T[len]; // NOLINT we own this
+        if (checked_mul(len, sizeof(T)) > (SIZE_MAX/2)) {
+            throw std::runtime_error("matrix exceeds maximim size");
+        }
+        vec::_ptr = new T[len]; // NOLINT, we own this
         if (zero_mem) vec::zero_fill();
     }
     void forget() noexcept { vec::_ptr = nullptr; vec::_len = 0; }
@@ -26,7 +30,7 @@ public:
     owned_vec& operator =(vec const& o) {
         if (vec::_ptr == o.ptr()) return *this;
         if (vec::_len < o.len()) {
-            this->~owned_vec();
+            fini();
             new(this) owned_vec(o.len(), false);
         }
         vec::_len = o.len();
@@ -46,12 +50,12 @@ public:
     owned_vec(owned_vec&& o) noexcept : vec(o._ptr, o._len) { o.forget(); }
     owned_vec& operator =(owned_vec&& o) noexcept {
         if (this == &o) return *this;
-        ~owned_vec();
+        fini();
         new(this) vec(o._ptr, o._len);
         o.forget();
     }
 
-    ~owned_vec() { delete[] vec::_ptr; } // NOLINT gsl::owner
+    ~owned_vec() { fini(); }
     /// --- end resource management ---
 
     /// --- non-in-place arithmetic ---
@@ -68,4 +72,7 @@ public:
     template<typename OT, bool ohs> T operator *(::vec<OT, ohs> o) const
         { return vec::as_const() * o; }
     /// --- end non-in-place arithmetic ---
+
+private:
+    void fini() { delete[] vec::_ptr; } // NOLINT gsl::owner
 };
